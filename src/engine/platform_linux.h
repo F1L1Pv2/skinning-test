@@ -373,3 +373,11 @@ void* platform_load_dynamic_function(void* dll, const char* funName){
 
     return proc;
 }
+
+void platform_lock_mouse(){
+
+}
+
+void platform_unlock_mouse(){
+
+}
