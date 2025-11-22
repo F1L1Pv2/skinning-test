@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "platform.h"
 #include "platform_globals.h"
@@ -42,13 +43,19 @@ static Atom UriListAtom = 0;
 // Xdnd state
 static Window drag_source = 0;
 static Time drop_time = 0;
+static bool s_mouse_locked = false;
+static int s_center_x = 0;
+static int s_center_y = 0;
+static Cursor s_invisible_cursor = None;
 
 static void parse_uri_list(const char* data) {
     // Free previous drop data
-    for (int i = 0; i < dropped_file_count; i++) free((void*)dropped_files[i]);
-    free(dropped_files);
-    dropped_files = NULL;
-    dropped_file_count = 0;
+    if (dropped_files) {
+        for (int i = 0; i < dropped_file_count; i++) free((void*)dropped_files[i]);
+        free(dropped_files);
+        dropped_files = NULL;
+        dropped_file_count = 0;
+    }
 
     // Parse new URIs
     const char* start = data;
@@ -61,15 +68,15 @@ static void parse_uri_list(const char* data) {
             // Skip "file://" and trim trailing whitespace
             const char* path_start = start + 7;
             size_t length = end - path_start;
-            
+
             // Strip trailing carriage return if exists
             if (length > 0 && path_start[length-1] == '\r') length--;
-            
+
             // Copy path
             char* path = malloc(length + 1);
             strncpy(path, path_start, length);
             path[length] = '\0';
-            
+
             // Add to list
             dropped_files = realloc(dropped_files, sizeof(char*) * (dropped_file_count + 1));
             dropped_files[dropped_file_count++] = path;
@@ -78,12 +85,28 @@ static void parse_uri_list(const char* data) {
     }
 }
 
+static Cursor create_invisible_cursor(Display* dpy, Window win) {
+    Pixmap pm;
+    XColor dummy;
+    static char zero_bits[] = { 0 };
+    pm = XCreateBitmapFromData(dpy, win, zero_bits, 1, 1);
+    Cursor cursor = XCreatePixmapCursor(dpy, pm, pm, &dummy, &dummy, 0, 0);
+    XFreePixmap(dpy, pm);
+    return cursor;
+}
+
 void platform_create_window(const char* title, size_t width, size_t height) {
     display = XOpenDisplay(NULL);
+    if (!display) {
+        running = false;
+        return;
+    }
+
     window = XCreateSimpleWindow(display, DefaultRootWindow(display), 10, 10, width, height, 0, 0, 0);
-    
-    long event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | 
-                     ButtonReleaseMask | StructureNotifyMask | PropertyChangeMask;
+
+    long event_mask = ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask |
+                     ButtonReleaseMask | StructureNotifyMask | PropertyChangeMask |
+                     PointerMotionMask | EnterWindowMask | LeaveWindowMask;
     XSelectInput(display, window, event_mask);
     XMapWindow(display, window);
 
@@ -102,10 +125,11 @@ void platform_create_window(const char* title, size_t width, size_t height) {
     XdndFinishedAtom = XInternAtom(display, "XdndFinished", False);
     UriListAtom = XInternAtom(display, "text/uri-list", False);
 
-    // Register as Xdnd aware
     unsigned long version = 5;
-    XChangeProperty(display, window, XdndAwareAtom, XA_ATOM, 32, 
+    XChangeProperty(display, window, XdndAwareAtom, XA_ATOM, 32,
                    PropModeReplace, (unsigned char*)&version, 1);
+
+    s_invisible_cursor = create_invisible_cursor(display, window);
 
     running = true;
     platform_fill_keycode_lookup_table();
@@ -113,13 +137,28 @@ void platform_create_window(const char* title, size_t width, size_t height) {
 
 bool platform_window_handle_events() {
     Window root, child;
-    int root_x, root_y, win_x, win_y;
-    unsigned int mask_return;
-    XQueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
+    int root_x = 0, root_y = 0, win_x = 0, win_y = 0;
+    unsigned int mask_return = 0;
 
     input.scroll = 0;
-    input.mouse_x = win_x;
-    input.mouse_y = win_y;
+
+    if (display) {
+        XQueryPointer(display, window, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask_return);
+    }
+
+    if (!s_mouse_locked) {
+        input.mouse_x = win_x;
+        input.mouse_y = win_y;
+    } else {
+        int dx = win_x - s_center_x;
+        int dy = win_y - s_center_y;
+        if (dx != 0 || dy != 0) {
+            input.mouse_x += dx;
+            input.mouse_y += dy;
+            XWarpPointer(display, None, window, 0, 0, 0, 0, s_center_x, s_center_y);
+            XFlush(display);
+        }
+    }
 
     for(int i = 0; i < NOB_ARRAY_LEN(input.keys); i++) {
         input.keys[i].justPressed = 0;
@@ -131,9 +170,10 @@ bool platform_window_handle_events() {
         XNextEvent(display, &event);
 
         switch(event.type) {
-            case ConfigureNotify: 
-                if (event.xconfigure.width != 0 && event.xconfigure.height != 0) 
+            case ConfigureNotify:
+                if (event.xconfigure.width != 0 && event.xconfigure.height != 0) {
                     if(!platform_resize_window_callback(false)) return false;
+                }
                 break;
 
             case KeyPress: case KeyRelease: {
@@ -149,16 +189,38 @@ bool platform_window_handle_events() {
                 break;
             }
 
+            case MotionNotify: {
+                if (!s_mouse_locked) {
+                    input.mouse_x = event.xmotion.x;
+                    input.mouse_y = event.xmotion.y;
+                } else {
+                }
+                break;
+            }
+
+            case EnterNotify: {
+                break;
+            }
+
+            case LeaveNotify: {
+                input.mouse_x = -1;
+                input.mouse_y = -1;
+                break;
+            }
+
             case ButtonPress: case ButtonRelease: {
                 bool isDown = event.type == ButtonPress;
                 bool scroll = false;
                 if(isDown) {
                     switch(event.xbutton.button) {
-                        case Button4: {input.scroll = 120; scroll = true;} break;
-                        case Button5: {input.scroll = -120; scroll = true;} break;
+                        case Button4: { input.scroll = 120; scroll = true; } break;
+                        case Button5: { input.scroll = -120; scroll = true; } break;
+                        case Button6: { input.scroll = 120 * 2; scroll = true; } break; // horizontal wheels sometimes
+                        case Button7: { input.scroll = -120 * 2; scroll = true; } break;
                     }
                 }
                 if(scroll) break;
+
                 KeyCodeID keyCode = KeyCodeLookupTable[BUTTONS_KEYCODE_OFFSET + event.xbutton.button];
                 Key* key = &input.keys[keyCode];
                 key->isDown = isDown;
@@ -174,13 +236,11 @@ bool platform_window_handle_events() {
                 Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", False);
 
                 if (event.xclient.message_type == XdndEnterAtom) {
-                    // Get source window and version
                     drag_source = event.xclient.data.l[0];
-                } 
+                }
                 else if (event.xclient.message_type == XdndPositionAtom) {
-                    // Reply that we accept the drop
                     drag_source = event.xclient.data.l[0];
-                    
+
                     XEvent response = {0};
                     response.xclient.type = ClientMessage;
                     response.xclient.message_type = XdndStatusAtom;
@@ -188,31 +248,31 @@ bool platform_window_handle_events() {
                     response.xclient.window = drag_source;
                     response.xclient.format = 32;
                     response.xclient.data.l[0] = window;
-                    response.xclient.data.l[1] = 1; // Accept with no rectangle
-                    response.xclient.data.l[2] = 0; // Empty rectangle
+                    response.xclient.data.l[1] = 1;
+                    response.xclient.data.l[2] = 0;
                     response.xclient.data.l[3] = 0;
                     response.xclient.data.l[4] = XdndActionCopyAtom;
-                    
+
                     XSendEvent(display, drag_source, False, NoEventMask, &response);
                 }
                 else if (event.xclient.message_type == XdndDropAtom) {
                     drag_source = event.xclient.data.l[0];
                     drop_time = event.xclient.data.l[2];
-                    XConvertSelection(display, XdndSelectionAtom, UriListAtom, 
+                    XConvertSelection(display, XdndSelectionAtom, UriListAtom,
                                      XdndSelectionAtom, window, drop_time);
-                } 
-                else if (event.xclient.message_type == wmProtocols && 
+                }
+                else if (event.xclient.message_type == wmProtocols &&
                          (Atom)event.xclient.data.l[0] == wmDeleteWindow) {
                     running = false;
                 }
                 break;
             }
 
-            case SelectionNotify: 
-                if (event.xselection.property && 
+            case SelectionNotify:
+                if (event.xselection.property &&
                     event.xselection.selection == XdndSelectionAtom &&
                     event.xselection.target == UriListAtom) {
-                    
+
                     Atom actual_type;
                     int actual_format;
                     unsigned long nitems, bytes_after;
@@ -226,8 +286,7 @@ bool platform_window_handle_events() {
                             XFree(data);
                         }
                     }
-                    
-                    // Notify source we're done
+
                     if (drag_source) {
                         XEvent finished = {0};
                         finished.xclient.type = ClientMessage;
@@ -236,19 +295,22 @@ bool platform_window_handle_events() {
                         finished.xclient.window = drag_source;
                         finished.xclient.format = 32;
                         finished.xclient.data.l[0] = window;
-                        finished.xclient.data.l[1] = (data != NULL) ? 1 : 0;
+                        finished.xclient.data.l[1] = (dropped_files != NULL) ? 1 : 0;
                         finished.xclient.data.l[2] = None;
-                        
+
                         XSendEvent(display, drag_source, False, NoEventMask, &finished);
                         drag_source = 0;
                     }
-                    
-                    // Delete the property
+
                     XDeleteProperty(display, window, event.xselection.property);
                 }
                 break;
+
+            default:
+                break;
         }
     }
+
     return true;
 }
 
@@ -306,7 +368,7 @@ void platform_fill_keycode_lookup_table() {
         {XK_Shift_L, KEY_SHIFT}, {XK_Shift_R, KEY_SHIFT}, {XK_Control_L, KEY_CONTROL},
         {XK_Control_R, KEY_CONTROL}, {XK_Alt_L, KEY_ALT}, {XK_Alt_R, KEY_ALT}
     };
-    
+
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         KeyCodeLookupTable[XKeysymToKeycode(display, keys[i].sym)] = keys[i].code;
     }
@@ -342,42 +404,79 @@ void platform_disable_fullscreen() {
 }
 
 bool platform_drag_and_drop_available() { return dropped_file_count > 0; }
-char** platform_get_drag_and_drop_files(int* count) { *count = dropped_file_count; return dropped_files; }
 
-void platform_release_drag_and_drop(char** files, int count) {
-    for (int i = 0; i < dropped_file_count; i++) free((void*)dropped_files[i]);
-    free(dropped_files);
+char** platform_get_drag_and_drop_files(int* count) {
+    *count = dropped_file_count;
+    char** result = dropped_files;
+
     dropped_files = NULL;
     dropped_file_count = 0;
+
+    return result;
+}
+
+void platform_release_drag_and_drop(char** files, int count) {
+    if (files == NULL) return;
+    for (int i = 0; i < count; i++) {
+        if (files[i] != NULL) free(files[i]);
+    }
+    free(files);
 }
 
 bool platform_free_dynamic_library(void* dll){
     int freeResult = dlclose(dll);
-
-    return (bool)freeResult;
+    return (freeResult == 0);
 }
 void* platform_load_dynamic_library(const char* dll){
     char path[256] = {};
-    sprintf(path, "./%s", dll);
+    snprintf(path, sizeof(path), "./%s", dll);
     void* lib = dlopen(path, RTLD_NOW);
-    char *errstr = dlerror(); 
-    if (errstr != NULL) 
-    {
-    }
-
     return lib;
-
 }
 void* platform_load_dynamic_function(void* dll, const char* funName){
     void* proc = dlsym(dll, funName);
-
     return proc;
 }
 
 void platform_lock_mouse(){
+    if (!display || s_mouse_locked) return;
 
+    XDefineCursor(display, window, s_invisible_cursor);
+
+    XWindowAttributes attrs;
+    XGetWindowAttributes(display, window, &attrs);
+    s_center_x = attrs.width / 2;
+    s_center_y = attrs.height / 2;
+
+    XWarpPointer(display, None, window, 0, 0, 0, 0, s_center_x, s_center_y);
+    XFlush(display);
+
+    int grabResult = XGrabPointer(
+        display,
+        window,
+        True,
+        ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+        GrabModeAsync,
+        GrabModeAsync,
+        window,
+        None,
+        CurrentTime
+    );
+
+    XGrabKeyboard(display, window, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+
+    (void)grabResult;
+
+    s_mouse_locked = true;
 }
 
 void platform_unlock_mouse(){
+    if (!display || !s_mouse_locked) return;
+    XUngrabPointer(display, CurrentTime);
+    XUngrabKeyboard(display, CurrentTime);
+    XUndefineCursor(display, window);
 
+    XFlush(display);
+
+    s_mouse_locked = false;
 }
