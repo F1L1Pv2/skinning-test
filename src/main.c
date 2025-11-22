@@ -269,9 +269,9 @@ void sample_animation(cgltf_animation* anim, float time, int loop)
 int main(){
     cgltf_options options = {0};
     cgltf_data* data = NULL;
-    cgltf_result result = cgltf_parse_file(&options, "assets/mixamo-2.glb", &data);
+    cgltf_result result = cgltf_parse_file(&options, "assets/mixamo.glb", &data);
     if (result != cgltf_result_success) return 1;
-    result = cgltf_load_buffers(&options, data, "assets/mixamo-2.glb");
+    result = cgltf_load_buffers(&options, data, "assets/mixamo.glb");
     if (result != cgltf_result_success) return 1;
     result = cgltf_validate(data);
     if (result != cgltf_result_success) return 1;
