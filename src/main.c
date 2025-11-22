@@ -383,24 +383,22 @@ int main(){
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
         "#version 450\n"
-        "layout(std430, binding = 0) readonly buffer JointMatrices {mat4 mats[];} jointBuf;"
-        "layout(push_constant) uniform PC{mat4 proj;mat4 view;mat4 model;mat4 invProj;}pc;"
-        "layout(location=0) in vec3 inPosition;"
-        "layout(location=1) in vec3 inNormal;"
-        "layout(location=2) in uvec4 inJoints;"
-        "layout(location=3) in vec4 inWeights;"
-        "layout(location=0) out vec3 outColor;"
-        "layout(location=1) out vec3 outNormal;"
+        "layout(std430,binding=0)readonly buffer J{mat4 m[];}j;"
+        "layout(push_constant)uniform PC{mat4 p;mat4 v;mat4 M;mat4 iP;}pc;"
+        "layout(location=0)in vec3 P;"
+        "layout(location=1)in vec3 N;"
+        "layout(location=2)in uvec4 JI;"
+        "layout(location=3)in vec4 W;"
+        "layout(location=0)out vec3 C;"
+        "layout(location=1)out vec3 ON;"
+        "layout(location=2)out vec3 OW;"
         "void main(){"
-            "mat4 skinning = (inWeights.x*jointBuf.mats[inJoints.x]) +"
-            "(inWeights.y*jointBuf.mats[inJoints.y]) +"
-            "(inWeights.z*jointBuf.mats[inJoints.z]) +"
-            "(inWeights.w*jointBuf.mats[inJoints.w]);"
-            "gl_Position = pc.proj * pc.view * pc.model * skinning * vec4(inPosition,1.0);"
-            "outNormal = mat3(pc.view * pc.model) * inNormal;"
-            "int v = gl_VertexIndex % 3;"
-            "vec2 uv = v==0 ? vec2(1,0) : v==1 ? vec2(0,1) : vec2(0,0);"
-            "outColor = vec3(uv, 1.0 - uv.x - uv.y);"
+        "mat4 S=W.x*j.m[JI.x]+W.y*j.m[JI.y]+W.z*j.m[JI.z]+W.w*j.m[JI.w];"
+        "vec4 WP=pc.M*S*vec4(P,1);"
+        "OW=WP.xyz;"
+        "ON=mat3(pc.M*S)*N;"
+        "gl_Position=pc.p*pc.v*WP;"
+        "C=vec3(1);"
         "}";
 
     if(!vkCompileShader(device, vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return 1;
@@ -408,13 +406,17 @@ int main(){
     VkShaderModule fragmentShader;
     const char* fragmentShaderSrc =
         "#version 450\n"
-        "layout(location=0) out vec4 outColor;"
-        "layout(location=0) in vec3 inColor;"
-        "layout(location=1) in vec3 inNormal;"
-        "layout(push_constant) uniform PC{mat4 proj;mat4 view;mat4 model;mat4 invProj;}pc;"
-
+        "layout(location=0)out vec4 OC;"
+        "layout(location=0)in vec3 C;"
+        "layout(location=1)in vec3 N;"
+        "layout(location=2)in vec3 W;"
+        "layout(push_constant)uniform PC{mat4 p;mat4 v;mat4 M;mat4 iP;}pc;"
         "void main(){"
-            "outColor=vec4(inColor,1.0);"
+        "vec3 n=normalize(N);"
+        "vec3 CP=inverse(pc.v)[3].xyz;"
+        "vec3 L=normalize(CP-W);"
+        "float d=max(dot(n,L),0);"
+        "OC=vec4(C*d,1);"
         "}";
     if(!vkCompileShader(device, fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return 1;
 
