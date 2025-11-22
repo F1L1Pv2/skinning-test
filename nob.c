@@ -23,14 +23,14 @@
 const char* vulkanSDKPathLIB;
 const char* vulkanSDKPathINC;
 
-#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations", "-Wno-initializer-overrides", "-IC:/ffmpeg/include", "-IC:/freetype/include",
+#define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations", "-Wno-initializer-overrides",
 #define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshell32", "-lwinmm", \
                               "-lshaderc_shared", "-lshaderc_util", "-lglslang", \
                               "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt", \
                               "-Wno-deprecated-declarations",
 #else
 #define PLATFORM_COMPILER_ARGS "-I/usr/include/freetype2", "-I/usr/include/libpng16", "-I/usr/local/include",
-#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm",
+#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc_shared", "-lm",
 #endif
 
 #define OUTPUT_PROGRAM_NAME "main"
