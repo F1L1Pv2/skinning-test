@@ -27,21 +27,15 @@ const char* vulkanSDKPathINC;
 #define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshell32", "-lwinmm", \
                               "-lshaderc_shared", "-lshaderc_util", "-lglslang", \
                               "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt", \
-                              "-Wno-deprecated-declarations", "-LC:/ffmpeg/lib", "-LC:/freetype/lib",
+                              "-Wno-deprecated-declarations",
 #else
 #define PLATFORM_COMPILER_ARGS "-I/usr/include/freetype2", "-I/usr/include/libpng16", "-I/usr/local/include",
-#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm", "-L/usr/local/ffmpeg/lib", 
-#endif
-
-#ifdef _WIN32
-#define ADDITIONAL_LINK
-#else
-#define ADDITIONAL_LINK  "-lz", "-lbz2", "-llzma", "-ldrm",
+#define PLATFORM_LINKER_FLAGS "-lvulkan", "-lX11", "-lXrandr", "-lshaderc", "-lc", "-lm",
 #endif
 
 #define OUTPUT_PROGRAM_NAME "main"
 #define COMPILER_ARGS PLATFORM_COMPILER_ARGS "-I./", "-I./src"
-#define LINKER_FLAGS PLATFORM_LINKER_FLAGS "-lavcodec", "-lavdevice", "-lavfilter", "-lavformat", "-lavutil", "-lswscale", "-lswresample", ADDITIONAL_LINK "-lfreetype"
+#define LINKER_FLAGS PLATFORM_LINKER_FLAGS
 #define BUILD_PATH(debug) (debug ? "build/debug/" : "build/release/")
 
 static char* strltrim(char* s) {
