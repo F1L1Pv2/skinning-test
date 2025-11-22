@@ -459,55 +459,50 @@ uint64_t pre_fullScreenSizeY;
 uint64_t pre_fullScreenPosX;
 uint64_t pre_fullScreenPosY;
 
-// Request a fullscreen toggle via EWMH client message (recommended)
-void platform_enable_fullscreen() {
-    if (!display || !window) return;
+void platform_enable_fullscreen(){
+    RECT rect;
+    if(GetWindowRect(hwnd, &rect)){
+        pre_fullScreenSizeX = rect.right - rect.left;
+        pre_fullScreenSizeY = rect.bottom - rect.top;
+        pre_fullScreenPosX = rect.left;
+        pre_fullScreenPosY = rect.top;
+    }
+    
+    //disable window decoration
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    style &= ~(WS_OVERLAPPEDWINDOW);
+    SetWindowLong(hwnd, GWL_STYLE, style);
 
-    Atom net_wm_state = XInternAtom(display, "_NET_WM_STATE", False);
-    Atom net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+    uint64_t posX;
+    uint64_t posY;
+    uint64_t sizeX;
+    uint64_t sizeY;
+    
+    HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (hMonitor == NULL) {
+        return;
+    }
+    MONITORINFO monitorInfo;
+    monitorInfo.cbSize = sizeof(MONITORINFO);
+    if (GetMonitorInfo(hMonitor, &monitorInfo)) {
+        posX = monitorInfo.rcMonitor.left;
+        posY = monitorInfo.rcMonitor.top;
+        sizeX = monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left;
+        sizeY = monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top;
+    } else {
+       return;
+    }
 
-    XEvent xev;
-    memset(&xev, 0, sizeof(xev));
-    xev.xclient.type = ClientMessage;
-    xev.xclient.window = window;
-    xev.xclient.message_type = net_wm_state;
-    xev.xclient.format = 32;
-
-    // _NET_WM_STATE_ADD = 1 (add property)
-    xev.xclient.data.l[0] = 1;
-    xev.xclient.data.l[1] = (long)net_wm_state_fullscreen;
-    xev.xclient.data.l[2] = 0;
-    xev.xclient.data.l[3] = 0;
-    xev.xclient.data.l[4] = 0;
-
-    XSendEvent(display, DefaultRootWindow(display), False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
-    XFlush(display);
+    SetWindowPos(hwnd, NULL, posX, posY, sizeX, sizeY, SWP_FRAMECHANGED);
 }
 
-void platform_disable_fullscreen() {
-    if (!display || !window) return;
+void platform_disable_fullscreen(){
+    //enable window decoration
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    style |= (WS_OVERLAPPEDWINDOW);
+    SetWindowLong(hwnd, GWL_STYLE, style);
 
-    Atom net_wm_state = XInternAtom(display, "_NET_WM_STATE", False);
-    Atom net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
-
-    XEvent xev;
-    memset(&xev, 0, sizeof(xev));
-    xev.xclient.type = ClientMessage;
-    xev.xclient.window = window;
-    xev.xclient.message_type = net_wm_state;
-    xev.xclient.format = 32;
-
-    // _NET_WM_STATE_REMOVE = 0 (remove property)
-    xev.xclient.data.l[0] = 0;
-    xev.xclient.data.l[1] = (long)net_wm_state_fullscreen;
-    xev.xclient.data.l[2] = 0;
-    xev.xclient.data.l[3] = 0;
-    xev.xclient.data.l[4] = 0;
-
-    XSendEvent(display, DefaultRootWindow(display), False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
-    XFlush(display);
+    SetWindowPos(hwnd, NULL, pre_fullScreenPosX, pre_fullScreenPosY, pre_fullScreenSizeX, pre_fullScreenSizeY, SWP_FRAMECHANGED);
 }
 
 bool platform_drag_and_drop_available() {
@@ -556,76 +551,48 @@ void* platform_load_dynamic_function(void* dll, const char* funName)
   return (void*)proc;
 }
 
-static Cursor create_invisible_cursor(Display* dpy, Window win) {
-    Pixmap pm;
-    XColor dummy;
-    static char noData[] = { 0 };
-    pm = XCreateBitmapFromData(dpy, win, noData, 1, 1);
-    Cursor cursor = XCreatePixmapCursor(dpy, pm, pm, &dummy, &dummy, 0, 0);
-    XFreePixmap(dpy, pm);
-    return cursor;
-}
-
-void platform_lock_mouse(){
-    if (!display) return;
-
-    // make sure we have a cursor
-    if (s_invisible_cursor == None) {
-        s_invisible_cursor = create_invisible_cursor(display, window);
-    }
-
-    // get window size / center
-    XWindowAttributes attrs;
-    XGetWindowAttributes(display, window, &attrs);
-    s_center_x = attrs.width / 2;
-    s_center_y = attrs.height / 2;
-
-    // warp to center first
-    XWarpPointer(display, None, window, 0, 0, 0, 0, s_center_x, s_center_y);
-    XFlush(display);
-
-    // Try to grab pointer (confine to window), use invisible cursor, owner_events = False
-    int grabPointerResult = XGrabPointer(
-        display,
-        window,                // grab on this window
-        False,                 // owner_events: False so events are reported to us
-        ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-        GrabModeAsync,
-        GrabModeAsync,
-        window,                // confine_to this window
-        s_invisible_cursor,    // use our invisible cursor
-        CurrentTime
-    );
-
-    if (grabPointerResult != GrabSuccess) {
-        // you can log to stderr or handle failure (compositor/WM denied grab)
-        // fprintf(stderr, "XGrabPointer failed: %d\n", grabPointerResult);
-    }
-
-    int grabKeyboardResult = XGrabKeyboard(display, window, False, GrabModeAsync, GrabModeAsync, CurrentTime);
-    if (grabKeyboardResult != GrabSuccess) {
-        // fprintf(stderr, "XGrabKeyboard failed: %d\n", grabKeyboardResult);
-    }
+void platform_lock_mouse()
+{
+    if (s_mouse_locked) return;
 
     s_mouse_locked = true;
+
+    // Hide cursor
+    ShowCursor(FALSE);
+
+    // Center point in screen coords
+    RECT rect;
+    GetClientRect(hwnd, &rect);
+
+    POINT center = {
+        (rect.right - rect.left) / 2,
+        (rect.bottom - rect.top) / 2
+    };
+
+    ClientToScreen(hwnd, &center);
+    s_center_point = center;
+
+    // Move cursor to center
+    SetCursorPos(center.x, center.y);
+
+    // Lock cursor to window
+    RECT clip = { rect.left, rect.top, rect.right, rect.bottom };
+    ClientToScreen(hwnd, (POINT*)&clip.left);
+    ClientToScreen(hwnd, (POINT*)&clip.right);
+    ClipCursor(&clip);
 }
 
-void platform_unlock_mouse(){
-    if (!display) return;
+void platform_unlock_mouse()
+{
+    if (!s_mouse_locked) return;
 
-    XUngrabPointer(display, CurrentTime);
-    XUngrabKeyboard(display, CurrentTime);
-
-    // If you previously defined a cursor, undefine it so WM shows normal cursor
-    if (s_invisible_cursor != None) {
-        XUndefineCursor(display, window);
-        // Optionally destroy the cursor if you don't need it anymore:
-        // XFreeCursor(display, s_invisible_cursor);
-        // s_invisible_cursor = None;
-    }
-
-    XFlush(display);
     s_mouse_locked = false;
+
+    // Show cursor
+    ShowCursor(TRUE);
+
+    // Release lock
+    ClipCursor(NULL);
 }
 
 #ifndef DEBUG

@@ -384,16 +384,52 @@ void platform_set_mouse_position(size_t x, size_t y) {
 }
 
 void platform_enable_fullscreen() {
-    Atom atoms[2] = { XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False), None };
-    XChangeProperty(display, window, XInternAtom(display, "_NET_WM_STATE", False),
-                   XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 1);
+    if (!display || !window) return;
+
+    Atom net_wm_state = XInternAtom(display, "_NET_WM_STATE", False);
+    Atom net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.xclient.type = ClientMessage;
+    xev.xclient.window = window;
+    xev.xclient.message_type = net_wm_state;
+    xev.xclient.format = 32;
+
+    // _NET_WM_STATE_ADD = 1 (add property)
+    xev.xclient.data.l[0] = 1;
+    xev.xclient.data.l[1] = (long)net_wm_state_fullscreen;
+    xev.xclient.data.l[2] = 0;
+    xev.xclient.data.l[3] = 0;
+    xev.xclient.data.l[4] = 0;
+
+    XSendEvent(display, DefaultRootWindow(display), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
     XFlush(display);
 }
 
 void platform_disable_fullscreen() {
-    Atom atoms[2] = { XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False), None };
-    XChangeProperty(display, window, XInternAtom(display, "_NET_WM_STATE", False),
-                   XA_ATOM, 32, PropModeReplace, (unsigned char*)atoms, 0);
+    if (!display || !window) return;
+
+    Atom net_wm_state = XInternAtom(display, "_NET_WM_STATE", False);
+    Atom net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.xclient.type = ClientMessage;
+    xev.xclient.window = window;
+    xev.xclient.message_type = net_wm_state;
+    xev.xclient.format = 32;
+
+    // _NET_WM_STATE_REMOVE = 0 (remove property)
+    xev.xclient.data.l[0] = 0;
+    xev.xclient.data.l[1] = (long)net_wm_state_fullscreen;
+    xev.xclient.data.l[2] = 0;
+    xev.xclient.data.l[3] = 0;
+    xev.xclient.data.l[4] = 0;
+
+    XSendEvent(display, DefaultRootWindow(display), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
     XFlush(display);
 }
 
