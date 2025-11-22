@@ -215,8 +215,6 @@ bool platform_window_handle_events() {
                     switch(event.xbutton.button) {
                         case Button4: { input.scroll = 120; scroll = true; } break;
                         case Button5: { input.scroll = -120; scroll = true; } break;
-                        case Button6: { input.scroll = 120 * 2; scroll = true; } break; // horizontal wheels sometimes
-                        case Button7: { input.scroll = -120 * 2; scroll = true; } break;
                     }
                 }
                 if(scroll) break;
