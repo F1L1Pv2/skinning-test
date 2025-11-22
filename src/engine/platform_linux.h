@@ -150,14 +150,10 @@ bool platform_window_handle_events() {
         input.mouse_x = win_x;
         input.mouse_y = win_y;
     } else {
-        int dx = win_x - s_center_x;
-        int dy = win_y - s_center_y;
-        if (dx != 0 || dy != 0) {
-            input.mouse_x += dx;
-            input.mouse_y += dy;
-            XWarpPointer(display, None, window, 0, 0, 0, 0, s_center_x, s_center_y);
-            XFlush(display);
-        }
+        input.mouse_x = win_x - s_center_x;
+        input.mouse_y = win_y - s_center_y;
+        XWarpPointer(display, None, window, 0, 0, 0, 0, s_center_x, s_center_y);
+        XFlush(display);
     }
 
     for(int i = 0; i < NOB_ARRAY_LEN(input.keys); i++) {
