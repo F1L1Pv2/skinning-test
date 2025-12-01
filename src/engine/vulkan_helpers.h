@@ -6,7 +6,7 @@
 #include "vulkan/vulkan.h"
 VkCommandBuffer vkCmdBeginSingleTime();
 void vkCmdEndSingleTime(VkCommandBuffer commandBuffer);
-void vkCmdTransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage);
+void vkCmdTransitionImage(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask);
 
 typedef struct {
     float r;
